@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+codex_*.log
+fcc_*.log
+*.log
+.pytest_cache/
+test-tmp/

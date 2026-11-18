@@ -1,0 +1,132 @@
+Revisa este generador de sudokus. Busca SOLO defectos reales: solucion unica no garantizada, conteo de soluciones con limite mal puesto, dificultad que no se corresponde con las pistas, no determinismo por semilla.
+
+Lista numerada: archivo, funcion, defecto. Si no hay defectos, escribe SIN HALLAZGOS. Menos de 250 palabras.
+
+=== generator/sudoku.py ===
+"""Deterministic 9x9 Sudoku generation with an independent solution count."""
+
+import argparse
+import json
+import random
+from pathlib import Path
+
+
+SIZE = 9
+
+
+def valid_solution(grid):
+    expected = set(range(1, 10))
+    if len(grid) != SIZE or any(len(row) != SIZE for row in grid):
+        return False
+    groups = list(grid)
+    groups += [[grid[r][c] for r in range(SIZE)] for c in range(SIZE)]
+    groups += [[grid[r][c] for r in range(br, br + 3) for c in range(bc, bc + 3)]
+               for br in (0, 3, 6) for bc in (0, 3, 6)]
+    return all(set(group) == expected for group in groups)
+
+
+def count_solutions(puzzle, limit=2):
+    """Count at most *limit* completions; reject malformed or conflicting grids."""
+    if len(puzzle) != SIZE or any(len(row) != SIZE for row in puzzle):
+        return 0
+    grid = [row[:] for row in puzzle]
+    rows, cols, boxes = [set() for _ in range(9)], [set() for _ in range(9)], [set() for _ in range(9)]
+    for r in range(9):
+        for c in range(9):
+            value = grid[r][c]
+            if not isinstance(value, int) or value < 0 or value > 9:
+                return 0
+            if value:
+                box = (r // 3) * 3 + c // 3
+                if value in rows[r] or value in cols[c] or value in boxes[box]:
+                    return 0
+                rows[r].add(value)
+                cols[c].add(value)
+                boxes[box].add(value)
+
+    def search():
+        best = None
+        options = None
+        for r in range(9):
+            for c in range(9):
+                if grid[r][c] == 0:
+                    box = (r // 3) * 3 + c // 3
+                    choices = set(range(1, 10)) - rows[r] - cols[c] - boxes[box]
+                    if not choices:
+                        return 0
+                    if options is None or len(choices) < len(options):
+                        best, options = (r, c, box), choices
+        if best is None:
+            return 1
+        r, c, box = best
+        total = 0
+        for value in sorted(options):
+            grid[r][c] = value
+            rows[r].add(value)
+            cols[c].add(value)
+            boxes[box].add(value)
+            total += search()
+            grid[r][c] = 0
+            rows[r].remove(value)
+            cols[c].remove(value)
+            boxes[box].remove(value)
+            if total >= limit:
+                break
+        return total
+
+    return search()
+
+
+def generate(seed, difficulty="facil"):
+    if difficulty not in ("facil", "medio"):
+        raise ValueError("difficulty must be facil or medio")
+    rng = random.Random(seed)
+    digits = list(range(1, 10))
+    rng.shuffle(digits)
+    rows = [band * 3 + offset for band in rng.sample(range(3), 3)
+            for offset in rng.sample(range(3), 3)]
+    cols = [stack * 3 + offset for stack in rng.sample(range(3), 3)
+            for offset in rng.sample(range(3), 3)]
+    solution = [[digits[(r * 3 + r // 3 + c) % 9] for c in cols] for r in rows]
+    puzzle = [row[:] for row in solution]
+    target = 48 if difficulty == "facil" else 40
+    positions = list(range(81))
+    rng.shuffle(positions)
+    clues = 81
+    for position in positions:
+        if clues == target:
+            break
+        r, c = divmod(position, 9)
+        saved = puzzle[r][c]
+        puzzle[r][c] = 0
+        if count_solutions(puzzle) == 1:
+            clues -= 1
+        else:
+            puzzle[r][c] = saved
+    # The target is an upper goal, never a false difficulty label.
+    if difficulty == "medio" and not 32 <= clues <= 44:
+        raise RuntimeError("could not produce a medium puzzle with unique solution")
+    if count_solutions(puzzle) != 1 or not valid_solution(solution):
+        raise RuntimeError("Sudoku verification failed")
+    return {"puzzle": puzzle, "solution": solution, "difficulty": difficulty, "seed": seed}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--n", type=int, required=True)
+    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--difficulty", choices=("facil", "medio"), required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    args = parser.parse_args(argv)
+    if args.n < 1:
+        parser.error("--n must be positive")
+    args.out.mkdir(parents=True, exist_ok=True)
+    rng = random.Random(args.seed)
+    for index in range(1, args.n + 1):
+        item = generate(rng.getrandbits(64), args.difficulty)
+        (args.out / f"sudoku_{index:03}.json").write_text(
+            json.dumps(item, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+if __name__ == "__main__":
+    main()

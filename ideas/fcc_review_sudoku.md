@@ -1,0 +1,3 @@
+1. generator/sudoku.py, count_solutions, la limitación por defecto = 2 corta la búsqueda después de dos soluciones, por lo que el test “count == 1” no garantiza una solución única.  
+2. generator/sudoku.py, generate, la etiqueta de dificultad no coincide con el número de pistas: “facil” usa 48 pistas mientras que la validación de “medio” exige 32‑44 pistas, making the difficulty label inaccurate.  
+3. generator/sudoku.py, generate, el manejo de la semilla es no determinista: se crea un Random(args.seed) y luego se obtiene un nuevo seed con getrandbits(64) para cada índice, de modo que la misma --seed produce puzzles diferentes.
